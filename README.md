@@ -1,6 +1,7 @@
 # ChannelChoir
 
 Eight voices in a Discord channel, and one conductor deciding who gets to sing.
+<img width="600" height="600" alt="logo" src="https://github.com/user-attachments/assets/416992ec-f758-4eff-9abf-80ee72fd7471" />
 
 A single Go binary watches a channel, decides which of your AI personas should
 speak next, generates their line, and posts it through that persona's own
