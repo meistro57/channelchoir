@@ -8,65 +8,64 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"regexp"
 	"strings"
 )
 
-type Client struct {
+// Ollama talks to a local Ollama server.
+type Ollama struct {
 	baseURL     string
 	model       string
 	temperature float64
 	numPredict  int
+	noThink     bool
 	http        *http.Client
 }
 
 // NewOllama takes a *http.Client so the caller owns the timeout.
-func NewOllama(baseURL, model string, temperature float64, numPredict int, hc *http.Client) *Client {
-	return &Client{
+func NewOllama(baseURL, model string, temperature float64, numPredict int, noThink bool, hc *http.Client) *Ollama {
+	return &Ollama{
 		baseURL:     strings.TrimRight(baseURL, "/"),
 		model:       model,
 		temperature: temperature,
 		numPredict:  numPredict,
+		noThink:     noThink,
 		http:        hc,
 	}
 }
 
-type chatMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+func (c *Ollama) Describe() string { return "ollama/" + c.model }
+
+type ollamaRequest struct {
+	Model     string         `json:"model"`
+	Messages  []Message      `json:"messages"`
+	Stream    bool           `json:"stream"`
+	Options   map[string]any `json:"options,omitempty"`
+	Think     *bool          `json:"think,omitempty"`
+	KeepAlive string         `json:"keep_alive,omitempty"`
 }
 
-type chatRequest struct {
-	Model    string            `json:"model"`
-	Messages []chatMessage     `json:"messages"`
-	Stream   bool              `json:"stream"`
-	Options  map[string]any    `json:"options,omitempty"`
-	Think    *bool             `json:"think,omitempty"`
-	KeepAlive string           `json:"keep_alive,omitempty"`
-}
-
-type chatResponse struct {
+type ollamaResponse struct {
 	Message struct {
-		Content string `json:"content"`
+		Content  string `json:"content"`
+		Thinking string `json:"thinking"`
 	} `json:"message"`
 	Error string `json:"error"`
 }
 
-// thinkTags strips <think>...</think> blocks that reasoning models emit.
-var thinkTags = regexp.MustCompile(`(?s)<think>.*?</think>`)
+func (c *Ollama) Speak(ctx context.Context, system, transcript string) (string, error) {
+	// Qwen3 and friends respect /no_think as a soft switch. Belt and
+	// braces alongside the API field, which older Ollama builds ignore.
+	if c.noThink {
+		system += "\n\n/no_think"
+	}
 
-// Speak generates one line of dialogue. system is the persona brief,
-// transcript is the recent channel history already formatted as text.
-func (c *Client) Speak(ctx context.Context, system, transcript string) (string, error) {
 	no := false
-	body, err := json.Marshal(chatRequest{
-		Model:  c.model,
-		Stream: false,
-		// Reasoning models burn a lot of tokens thinking before they say
-		// "lol". Turn it off; Ollama ignores this for models without it.
+	body, err := json.Marshal(ollamaRequest{
+		Model:     c.model,
+		Stream:    false,
 		Think:     &no,
 		KeepAlive: "30m",
-		Messages: []chatMessage{
+		Messages: []Message{
 			{Role: "system", Content: system},
 			{Role: "user", Content: transcript},
 		},
@@ -96,7 +95,7 @@ func (c *Client) Speak(ctx context.Context, system, transcript string) (string, 
 		return "", fmt.Errorf("ollama: %s: %s", resp.Status, string(msg))
 	}
 
-	var out chatResponse
+	var out ollamaResponse
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		return "", fmt.Errorf("decode ollama response: %w", err)
 	}
@@ -104,20 +103,5 @@ func (c *Client) Speak(ctx context.Context, system, transcript string) (string, 
 		return "", fmt.Errorf("ollama: %s", out.Error)
 	}
 
-	return Clean(out.Message.Content), nil
-}
-
-// Clean strips reasoning blocks, surrounding quotes, and the "Name:" prefix
-// models love to add even when you tell them not to.
-func Clean(s string) string {
-	s = thinkTags.ReplaceAllString(s, "")
-	s = strings.TrimSpace(s)
-
-	// Drop a leading "Somebody:" if the model narrated itself.
-	if idx := strings.Index(s, ":"); idx > 0 && idx < 32 && !strings.Contains(s[:idx], " ") {
-		s = strings.TrimSpace(s[idx+1:])
-	}
-
-	s = strings.Trim(s, "\"")
-	return strings.TrimSpace(s)
+	return Clean(out.Message.Content)
 }

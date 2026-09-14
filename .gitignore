@@ -1,0 +1,42 @@
+# filename: .gitignore
+
+# ---- Secrets and local config ----
+# choir.yaml holds your real channel ID and points at your env vars.
+# choir.example.yaml is the tracked template.
+.env
+.env.*
+!.env.example
+choir.yaml
+*.pem
+*.key
+
+# ---- Built binaries ----
+/choir
+/bin/
+*.exe
+*.test
+*.out
+
+# ---- Go ----
+vendor/
+go.work
+go.work.sum
+
+# ---- Logs and runtime junk ----
+*.log
+logs/
+data/
+tmp/
+
+# ---- Editors ----
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ---- OS ----
+.DS_Store
+Thumbs.db
+desktop.ini
+*:Zone.Identifier

@@ -3,29 +3,35 @@ package conductor
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"math/rand"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/meistro57/channelchoir/internal/config"
 	"github.com/meistro57/channelchoir/internal/discordio"
 	"github.com/meistro57/channelchoir/internal/llm"
+	"github.com/meistro57/channelchoir/internal/memory"
 	"github.com/meistro57/channelchoir/internal/persona"
 )
 
 // Conductor is the whole point of this project. Ten voices generating text is
 // easy; deciding who gets to talk, and when everybody shuts up, is the job.
 type Conductor struct {
-	cfg      *config.Config
-	voices   []*persona.Persona
-	discord  *discordio.Client
-	model    *llm.Client
-	rng      *rand.Rand
-	dryRun   bool
+	cfg     *config.Config
+	voices  []*persona.Persona
+	discord *discordio.Client
+	model   llm.Speaker
+	mem     *memory.Store // nil when memory is disabled
+	rng     *rand.Rand
+	dryRun  bool
 
-	// transcript is the rolling memory of the room.
+	names []string
+
+	// transcript is the rolling short-term memory of the room.
 	transcript []line
 
 	// turn increments every time anyone speaks, human or voice.
@@ -49,12 +55,18 @@ type line struct {
 	human   bool
 }
 
-func New(cfg *config.Config, voices []*persona.Persona, dc *discordio.Client, model *llm.Client, dryRun bool) *Conductor {
+func New(cfg *config.Config, voices []*persona.Persona, dc *discordio.Client, model llm.Speaker, mem *memory.Store, dryRun bool) *Conductor {
+	names := make([]string, 0, len(voices))
+	for _, v := range voices {
+		names = append(names, v.Name)
+	}
 	return &Conductor{
 		cfg:       cfg,
 		voices:    voices,
 		discord:   dc,
 		model:     model,
+		mem:       mem,
+		names:     names,
 		rng:       rand.New(rand.NewSource(time.Now().UnixNano())),
 		dryRun:    dryRun,
 		lastSpoke: map[string]int{},
@@ -68,7 +80,12 @@ func (c *Conductor) Run(ctx context.Context) error {
 	}
 
 	log.Printf("choir is live: %d voices, channel %s, model %s",
-		len(c.voices), c.cfg.Discord.ChannelID, c.cfg.Ollama.Model)
+		len(c.voices), c.cfg.Discord.ChannelID, c.model.Describe())
+	if c.mem != nil {
+		log.Printf("memory: %s", c.mem.Describe())
+	} else {
+		log.Printf("memory: disabled")
+	}
 
 	ticker := time.NewTicker(time.Duration(c.cfg.Discord.PollSeconds) * time.Second)
 	defer ticker.Stop()
@@ -137,19 +154,75 @@ func (c *Conductor) tick(ctx context.Context) error {
 
 	last := c.transcript[len(c.transcript)-1]
 
-	// Nobody answers themselves.
+	// A human calling someone by name gets that voice, full stop — no
+	// cooldown, no scoring contest. This is how you talk to one of them.
+	if last.human {
+		if p := c.addressed(last.text); p != nil {
+			return c.perform(ctx, p, last)
+		}
+	}
+
 	speaker := c.choose(last)
 	if speaker == nil {
 		return nil
 	}
 
-	return c.perform(ctx, speaker)
+	return c.perform(ctx, speaker, last)
+}
+
+// addressed returns the voice a message calls out by name, or nil. When
+// several are named it picks one at random and lets the rest join normally.
+func (c *Conductor) addressed(text string) *persona.Persona {
+	tokens := tokenize(text)
+
+	var named []*persona.Persona
+	for _, p := range c.voices {
+		if addresses(tokens, p) {
+			named = append(named, p)
+		}
+	}
+
+	switch len(named) {
+	case 0:
+		return nil
+	case 1:
+		return named[0]
+	default:
+		return named[c.rng.Intn(len(named))]
+	}
+}
+
+// tokenize splits a message into lowercase word tokens with punctuation
+// stripped, so "Rivet," matches and "mother" does not summon Moth.
+func tokenize(s string) map[string]bool {
+	out := map[string]bool{}
+	fields := strings.FieldsFunc(strings.ToLower(s), func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsNumber(r)
+	})
+	for _, f := range fields {
+		out[f] = true
+	}
+	return out
+}
+
+// addresses reports whether the tokens name this voice. A voice answers to
+// its full name and to its first word, so "Barnaby" reaches Barnaby Quill.
+func addresses(tokens map[string]bool, p *persona.Persona) bool {
+	name := strings.ToLower(strings.TrimSpace(p.Name))
+	if tokens[name] {
+		return true
+	}
+	if first, _, ok := strings.Cut(name, " "); ok && first != "" && tokens[first] {
+		return true
+	}
+	return false
 }
 
 // choose scores every eligible voice against the last thing said and returns
 // the winner, or nil if the room stays quiet.
 func (c *Conductor) choose(last line) *persona.Persona {
 	lowered := strings.ToLower(last.text)
+	tokens := tokenize(last.text)
 
 	type scored struct {
 		p     *persona.Persona
@@ -180,7 +253,7 @@ func (c *Conductor) choose(last line) *persona.Persona {
 		}
 
 		// Being named beats everything else.
-		if strings.Contains(lowered, strings.ToLower(p.Name)) {
+		if addresses(tokens, p) {
 			score += c.cfg.Conductor.DirectAddressBoost
 		}
 
@@ -210,22 +283,35 @@ func (c *Conductor) choose(last line) *persona.Persona {
 	return best.p
 }
 
-// perform waits a beat, generates the line, and posts it.
-func (c *Conductor) perform(ctx context.Context, p *persona.Persona) error {
+// perform waits a beat, recalls what it can, generates the line, and posts it.
+func (c *Conductor) perform(ctx context.Context, p *persona.Persona, last line) error {
 	delay := c.cfg.Conductor.MinDelaySeconds
 	if spread := c.cfg.Conductor.MaxDelaySeconds - c.cfg.Conductor.MinDelaySeconds; spread > 0 {
 		delay += c.rng.Intn(spread + 1)
 	}
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-time.After(time.Duration(delay) * time.Second):
+	if delay > 0 {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(time.Duration(delay) * time.Second):
+		}
 	}
 
-	text, err := c.model.Speak(ctx, c.systemPrompt(p), c.renderTranscript())
+	recalled := c.recall(ctx, p, last.text)
+
+	text, err := c.model.Speak(ctx, c.systemPrompt(p), c.renderTranscript(p, recalled))
 	if err != nil {
+		if errors.Is(err, llm.ErrTruncatedThinking) {
+			// Don't burn the turn on a scratchpad. Bench this voice and
+			// let someone else try on the next tick.
+			log.Printf("%s: %v (raise the token limit or check no_think)", p.Name, err)
+			c.lastSpoke[p.Name] = c.turn
+			return nil
+		}
 		return fmt.Errorf("%s failed to speak: %w", p.Name, err)
 	}
+
+	text = llm.StripSpeakerPrefix(text, c.names)
 	if strings.TrimSpace(text) == "" {
 		log.Printf("%s had nothing to say", p.Name)
 		return nil
@@ -239,11 +325,57 @@ func (c *Conductor) perform(ctx context.Context, p *persona.Persona) error {
 		}
 	}
 
-	// Record locally too. The poller will also see the webhook message come
-	// back, but we dedupe by message ID, and having it now keeps the next
-	// scoring pass honest.
 	c.record(p.Name, text, false)
 	return nil
+}
+
+// recall pulls this voice's relevant memories. Failures are logged and
+// swallowed — a memory outage makes the choir forgetful, not broken.
+func (c *Conductor) recall(ctx context.Context, p *persona.Persona, query string) []memory.Record {
+	if c.mem == nil {
+		return nil
+	}
+
+	limit := c.cfg.Memory.RecallLimit
+	rctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+
+	recs, err := c.mem.Recall(rctx, p.Name, query, limit, c.cfg.Memory.MinScore)
+	if err != nil {
+		log.Printf("recall for %s failed: %v", p.Name, err)
+		return nil
+	}
+
+	// Drop anything already sitting in the visible transcript — no point
+	// "remembering" a line that's three messages up the screen.
+	recent := map[string]bool{}
+	for _, l := range c.transcript {
+		recent[l.text] = true
+	}
+
+	out := make([]memory.Record, 0, len(recs))
+	for _, r := range recs {
+		if recent[r.Text] {
+			continue
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
+// remember writes a line to long-term memory in the background so the
+// conversation never waits on an embedding call.
+func (c *Conductor) remember(r memory.Record) {
+	if c.mem == nil {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := c.mem.Remember(ctx, r); err != nil {
+			log.Printf("remember failed (%s): %v", r.Speaker, err)
+		}
+	}()
 }
 
 func (c *Conductor) record(speaker, text string, human bool) {
@@ -268,15 +400,43 @@ func (c *Conductor) record(speaker, text string, human bool) {
 		c.verse++
 		c.lastSpoke[speaker] = c.turn
 	}
+
+	voice := speaker
+	if human {
+		voice = ""
+	}
+	c.remember(memory.Record{
+		Voice:   voice,
+		Speaker: speaker,
+		Text:    text,
+		Human:   human,
+		TS:      time.Now().Unix(),
+	})
 }
 
-func (c *Conductor) renderTranscript() string {
+func (c *Conductor) renderTranscript(p *persona.Persona, recalled []memory.Record) string {
 	var b strings.Builder
+
+	if len(recalled) > 0 {
+		now := time.Now()
+		b.WriteString("Things you remember from earlier conversations:\n")
+		for _, r := range recalled {
+			who := r.Speaker
+			if r.Voice == p.Name {
+				who = "you"
+			}
+			fmt.Fprintf(&b, "- (%s) %s said: %s\n", r.When(now), who, r.Text)
+		}
+		b.WriteString("\nOnly bring these up if they're actually relevant.\n\n")
+	}
+
 	b.WriteString("Recent messages in the channel:\n\n")
 	for _, l := range c.transcript {
 		fmt.Fprintf(&b, "%s: %s\n", l.speaker, l.text)
 	}
-	b.WriteString("\nWrite the next message.")
+	// Naming the speaker at the very end matters — without it the model
+	// drifts into whoever it was reading about last.
+	fmt.Fprintf(&b, "\nYou are %s. Write only your next message, nothing else.", p.Name)
 	return b.String()
 }
 
@@ -287,12 +447,16 @@ You are %s, posting in a Discord channel.
 Others in the channel: %s.
 
 Rules:
+- Output ONLY the message text. No reasoning, no explanation, no preamble.
 - Write ONE message, exactly as you would actually type it in Discord.
-- Keep it short. One to three sentences. Chat, not an essay.
+- Keep it SHORT. Under 30 words. Usually one sentence, two at the most.
+- Do not deliver a lecture, a list, or a paragraph. This is a chat window.
 - Do NOT prefix your message with your name.
 - Do NOT narrate actions or use roleplay asterisks.
 - Do NOT speak for anyone else.
 - React to what was just said. Disagree, joke, or change the subject if that's in character.
+- If you remember something relevant from before, reference it naturally, the
+  way a person would. Never announce that you are recalling something.
 - Never mention being an AI, a model, or a bot.`,
 		p.System, p.Name, persona.Roster(c.voices))
 }

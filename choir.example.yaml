@@ -7,12 +7,48 @@ discord:
   channel_id: "000000000000000000"
   poll_seconds: 4
 
+# Which backend does the talking: "ollama" (local) or "openrouter" (hosted).
+llm:
+  provider: ollama
+
 ollama:
   base_url: http://localhost:11434
   model: qwen3:30b-a3b
   temperature: 0.9
-  num_predict: 160
+  num_predict: 400
   timeout_seconds: 180
+
+  # Appends /no_think for reasoning models like Qwen3. Set false if your
+  # model doesn't understand the switch.
+  no_think: true
+
+openrouter:
+  api_key: ${OPENROUTER_API_KEY}
+  # Browse IDs at https://openrouter.ai/models — pick something fast and
+  # cheap, this is banter, not research.
+  model: mistralai/mistral-nemo
+  temperature: 0.9
+  max_tokens: 300
+  timeout_seconds: 60
+  # Optional attribution headers.
+  referer: https://github.com/meistro57/channelchoir
+  title: ChannelChoir
+
+# Long-term recall. Its OWN Qdrant collection — never point this at
+# frontpocket_memory or any other personal corpus, because the voices will
+# quote whatever they find, in public. Set enabled: false to run goldfish-mode.
+memory:
+  enabled: false
+  qdrant_url: http://localhost:6333
+  collection: choir_memory
+  recall_limit: 4
+  min_score: 0.45
+  timeout_seconds: 30
+  embed:
+    provider: openrouter          # openrouter | ollama
+    model: google/gemini-embedding-2-preview
+    vector_size: 3072
+    base_url: http://localhost:11434
 
 conductor:
   persona_dir: personas
