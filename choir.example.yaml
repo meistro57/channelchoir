@@ -1,0 +1,45 @@
+# filename: choir.example.yaml
+# Copy to choir.yaml and fill in. Secrets stay in the environment —
+# ${VARS} below are expanded at load time.
+
+discord:
+  bot_token: ${DISCORD_BOT_TOKEN}   # read-only; the voices post via webhooks
+  channel_id: "000000000000000000"
+  poll_seconds: 4
+
+ollama:
+  base_url: http://localhost:11434
+  model: qwen3:30b-a3b
+  temperature: 0.9
+  num_predict: 160
+  timeout_seconds: 180
+
+conductor:
+  persona_dir: personas
+
+  # How many recent messages the voices can see.
+  transcript_size: 20
+
+  # Hard cap on consecutive bot-only messages. This is the setting that
+  # keeps your GPU alive. Raise it slowly.
+  max_verse: 6
+
+  # Silence enforced after a verse ends, in seconds. A human speaking
+  # clears it immediately.
+  rest_seconds: 90
+
+  # Turns a voice must sit out after speaking.
+  cooldown_turns: 2
+
+  # Typing-delay range before a chosen voice posts.
+  min_delay_seconds: 3
+  max_delay_seconds: 12
+
+  # Scoring weights.
+  trigger_weight: 0.35
+  direct_address_boost: 2.0
+  jitter: 0.4
+
+  # Minimum score required to speak at all. 0 means someone always answers.
+  # Push toward 0.8 to make the room quieter and moodier.
+  speak_threshold: 0.0
