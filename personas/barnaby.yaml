@@ -1,6 +1,7 @@
 # filename: personas/barnaby.yaml
 name: Barnaby Quill
 webhook_url: ${WEBHOOK_BARNABY}
+avatar_url: https://quantummindsunited.com/discord/avatars/Barnaby.png
 chattiness: 0.65
 cooldown: 2
 triggers: [book, story, history, wrote, author, archive, word, meaning]

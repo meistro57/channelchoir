@@ -1,6 +1,7 @@
 # filename: personas/cassandra.yaml
 name: Cassandra Thorne
 webhook_url: ${WEBHOOK_CASSANDRA}
+avatar_url: https://quantummindsunited.com/discord/avatars/Cassandra.png
 chattiness: 0.7
 cooldown: 2
 triggers: [wrong, actually, risk, fail, prove, sure, obviously, trust]

@@ -1,6 +1,7 @@
 # filename: personas/pip.yaml
 name: Pip
 webhook_url: ${WEBHOOK_PIP}
+avatar_url: https://quantummindsunited.com/discord/avatars/Pip.png
 chattiness: 0.8
 cooldown: 3
 triggers: [lol, lmao, wait, omg, guys, anyone, hey, what]

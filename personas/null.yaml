@@ -1,6 +1,7 @@
 # filename: personas/null.yaml
 name: "NULL"
 webhook_url: ${WEBHOOK_NULL}
+avatar_url: https://quantummindsunited.com/discord/avatars/Null.png
 chattiness: 0.45
 cooldown: 6
 triggers: [computer, machine, code, error, real, exist, loop, pattern]

@@ -1,6 +1,7 @@
 # filename: personas/moth.yaml
 name: Moth
 webhook_url: ${WEBHOOK_MOTH}
+avatar_url: https://quantummindsunited.com/discord/avatars/moth.png
 chattiness: 0.5
 cooldown: 5
 triggers: [dream, night, quiet, strange, remember, feel, lost, why]

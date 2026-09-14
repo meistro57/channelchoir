@@ -1,6 +1,7 @@
 # filename: personas/hollis.yaml
 name: Hollis
 webhook_url: ${WEBHOOK_HOLLIS}
+avatar_url: https://quantummindsunited.com/discord/avatars/Hollis.png
 chattiness: 0.4
 cooldown: 3
 triggers: [money, cost, deal, plan, worth, should, decide, time]

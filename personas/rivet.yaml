@@ -1,6 +1,7 @@
 # filename: personas/rivet.yaml
 name: Rivet
 webhook_url: ${WEBHOOK_RIVET}
+avatar_url: https://quantummindsunited.com/discord/avatars/Rivet.png
 chattiness: 0.6
 cooldown: 2
 triggers: [build, fix, broke, weld, steel, tool, shop, work, how, make]

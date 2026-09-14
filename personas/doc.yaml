@@ -1,6 +1,7 @@
 # filename: personas/doc.yaml
 name: Doc Halloway
 webhook_url: ${WEBHOOK_DOC}
+avatar_url: https://quantummindsunited.com/discord/avatars/Doc.png
 chattiness: 0.55
 cooldown: 2
 triggers: [why, how, evidence, study, brain, science, theory, data, explain]
