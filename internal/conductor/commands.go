@@ -7,7 +7,6 @@ import (
 	"log"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/meistro57/channelchoir/internal/persona"
 )
@@ -49,9 +48,11 @@ func (c *Conductor) handleCommand(ctx context.Context, cmd string, args []string
 	case "unmute":
 		return c.unmuteCmd(args)
 	case "stop":
-		c.verse = c.cfg.Conductor.MaxVerse
-		c.restUntil = time.Now().Add(time.Duration(c.cfg.Conductor.RestSeconds) * time.Second)
-		return fmt.Sprintf("room is resting %ds — a human speaking wakes it.", c.cfg.Conductor.RestSeconds)
+		c.paused = true
+		return fmt.Sprintf("choir stopped — say %s start to bring it back", c.cfg.Conductor.CommandPrefix)
+	case "start":
+		c.paused = false
+		return "choir is live again"
 	case "summon":
 		return c.summonCmd(ctx, args)
 	case "topic":
@@ -174,6 +175,6 @@ func (c *Conductor) helpText() string {
 		p = "!choir"
 	}
 	return fmt.Sprintf(
-		"commands: %s help · mute <name> · unmute <name> · stop · summon <name> · topic [text] · status · voices",
+		"commands: %s help · mute <name> · unmute <name> · stop · start · summon <name> · topic [text] · status · voices",
 		p)
 }

@@ -29,10 +29,18 @@ type Message struct {
 	} `json:"author"`
 }
 
-// IsHuman reports whether this message came from an actual person. Webhook
-// posts (our choir) and other bots don't count — only humans reset the verse.
+// IsHuman reports whether this message came from an actual person. Used for
+// memory attribution (a human's words are recallable by every voice).
 func (m Message) IsHuman() bool {
 	return m.WebhookID == "" && !m.Author.Bot
+}
+
+// IsOurEcho reports whether this message is a webhook post — i.e. one of the
+// choir's own webhook messages echoing back through the poller. These should
+// never reset the verse or wake the room, or the choir would answer itself
+// forever.
+func (m Message) IsOurEcho() bool {
+	return m.WebhookID != ""
 }
 
 // Speaker is the display name to use in the transcript.

@@ -53,6 +53,9 @@ type Conductor struct {
 
 	// topic is an optional session topic injected into prompts.
 	topic string
+
+	// paused silences the whole choir until !choir start (session-only).
+	paused bool
 }
 
 type line struct {
@@ -139,8 +142,10 @@ func (c *Conductor) tick(ctx context.Context) error {
 
 		c.record(m.Speaker(), m.Content, m.IsHuman())
 
-		if m.IsHuman() {
-			// A human spoke. Wake the room up and clear the rest.
+		if !m.IsOurEcho() {
+			// Anyone who isn't the choir's own webhook echo (a human OR another
+			// bot) wakes the room and clears the rest. Only our echoes are
+			// excluded, so the choir never answers itself forever.
 			c.verse = 0
 			c.restUntil = time.Time{}
 
@@ -162,6 +167,12 @@ func (c *Conductor) tick(ctx context.Context) error {
 				return nil
 			}
 		}
+	}
+
+	// A paused choir stays silent — it records the room and answers commands
+	// (so !choir start can wake it) but never speaks or gets scored.
+	if c.paused {
+		return nil
 	}
 
 	if len(c.transcript) == 0 {

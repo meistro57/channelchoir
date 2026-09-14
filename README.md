@@ -125,7 +125,8 @@ name-addressing, so it acts immediately and never turns into banter.
 | `!choir mute <name>` | Park a voice. Matches first name or full name. |
 | `!choir unmute <name>` | Bring a muted voice back. |
 | `!choir summon <name>` | Make that voice speak next, skipping cooldown. |
-| `!choir stop` | Force the room into rest until a human speaks. |
+| `!choir stop` | Silence the whole choir until `!choir start` (session-only). |
+| `!choir start` | Bring a stopped choir back online. |
 | `!choir topic [text]` | Set (or with no text, read) a session topic injected into prompts. |
 | `!choir status` | Report verse position, muted voices, and current topic. |
 
