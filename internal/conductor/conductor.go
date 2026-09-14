@@ -47,6 +47,12 @@ type Conductor struct {
 	restUntil time.Time
 
 	lastMessageID string
+
+	// muted is the session-only set of parked voices (keyed by lowercased name).
+	muted map[string]bool
+
+	// topic is an optional session topic injected into prompts.
+	topic string
 }
 
 type line struct {
@@ -70,6 +76,7 @@ func New(cfg *config.Config, voices []*persona.Persona, dc *discordio.Client, mo
 		rng:       rand.New(rand.NewSource(time.Now().UnixNano())),
 		dryRun:    dryRun,
 		lastSpoke: map[string]int{},
+		muted:     map[string]bool{},
 	}
 }
 
@@ -136,6 +143,24 @@ func (c *Conductor) tick(ctx context.Context) error {
 			// A human spoke. Wake the room up and clear the rest.
 			c.verse = 0
 			c.restUntil = time.Time{}
+
+			// Commands are handled before any address/scoring logic so a
+			// mute actually takes effect and a summon speaks regardless of
+			// cooldown. We only treat the most recent message as a command,
+			// so a batch of backlog won't trigger a pile of actions.
+		}
+	}
+
+	// If the most recent thing a human said was a command, act on it and
+	// stop — commands don't get scored, addressed, or turned into banter.
+	if n := len(c.transcript); n > 0 {
+		if last := c.transcript[n-1]; last.human {
+			if cmd, args, ok := c.parseCommand(last.text); ok {
+				if ack := c.handleCommand(ctx, cmd, args); ack != "" {
+					c.acknowledge(ctx, ack)
+				}
+				return nil
+			}
 		}
 	}
 
@@ -233,6 +258,12 @@ func (c *Conductor) choose(last line) *persona.Persona {
 	for _, p := range c.voices {
 		// Don't let a voice reply to itself.
 		if strings.EqualFold(p.Name, last.speaker) {
+			continue
+		}
+
+		// A muted voice is parked and won't win a round (summon still
+		// reaches it if explicitly asked, but it's checked there too).
+		if c.muted[strings.ToLower(strings.TrimSpace(p.Name))] {
 			continue
 		}
 
@@ -378,6 +409,29 @@ func (c *Conductor) remember(r memory.Record) {
 	}()
 }
 
+// acknowledge posts the conductor's own reply to a command, using the
+// conductor webhook so it appears distinctly in-channel. No webhook => log only.
+func (c *Conductor) acknowledge(ctx context.Context, ack string) {
+	if ack == "" {
+		return
+	}
+	if c.cfg.Conductor.ConductorWebhookURL == "" {
+		log.Printf("[command] %s", ack)
+		return
+	}
+	name := c.cfg.Conductor.ConductorUsername
+	if name == "" {
+		name = "Conductor"
+	}
+	if c.dryRun {
+		log.Printf("[dry-run] %s: %s", name, ack)
+		return
+	}
+	if err := c.discord.PostWebhook(ctx, c.cfg.Conductor.ConductorWebhookURL, name, "", ack); err != nil {
+		log.Printf("acknowledge failed: %v", err)
+	}
+}
+
 func (c *Conductor) record(speaker, text string, human bool) {
 	// Skip an exact repeat of the last line — this is what catches our own
 	// webhook posts echoing back through the poller.
@@ -441,12 +495,16 @@ func (c *Conductor) renderTranscript(p *persona.Persona, recalled []memory.Recor
 }
 
 func (c *Conductor) systemPrompt(p *persona.Persona) string {
+	topic := ""
+	if c.topic != "" {
+		topic = fmt.Sprintf("The group is currently discussing: %s. Lean into it when it fits.\n\n", c.topic)
+	}
 	return fmt.Sprintf(`%s
 
 You are %s, posting in a Discord channel.
 Others in the channel: %s.
 
-Rules:
+%sRules:
 - Output ONLY the message text. No reasoning, no explanation, no preamble.
 - Write ONE message, exactly as you would actually type it in Discord.
 - Keep it SHORT. Under 30 words. Usually one sentence, two at the most.
@@ -458,5 +516,5 @@ Rules:
 - If you remember something relevant from before, reference it naturally, the
   way a person would. Never announce that you are recalling something.
 - Never mention being an AI, a model, or a bot.`,
-		p.System, p.Name, persona.Roster(c.voices))
+		p.System, p.Name, persona.Roster(c.voices), topic)
 }

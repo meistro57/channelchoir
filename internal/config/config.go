@@ -95,6 +95,19 @@ type OpenRouterConfig struct {
 type ConductorConfig struct {
 	PersonaDir string `yaml:"persona_dir"`
 
+	// ConductorWebhookURL is a webhook the conductor itself posts through
+	// to acknowledge commands in-channel. Empty disables acknowledgment
+	// (commands are still applied and logged, just not echoed).
+	ConductorWebhookURL string `yaml:"conductor_webhook_url"`
+
+	// ConductorUsername is the display name for command acknowledgments.
+	// Defaults to "Conductor".
+	ConductorUsername string `yaml:"conductor_username"`
+
+	// CommandPrefix is the case-insensitive prefix that marks a human
+	// message as a command. Defaults to "!choir".
+	CommandPrefix string `yaml:"command_prefix"`
+
 	// TranscriptSize is how many recent messages the voices can see.
 	TranscriptSize int `yaml:"transcript_size"`
 
@@ -189,6 +202,12 @@ func (c *Config) applyDefaults() {
 
 	if c.Conductor.PersonaDir == "" {
 		c.Conductor.PersonaDir = "personas"
+	}
+	if c.Conductor.ConductorUsername == "" {
+		c.Conductor.ConductorUsername = "Conductor"
+	}
+	if c.Conductor.CommandPrefix == "" {
+		c.Conductor.CommandPrefix = "!choir"
 	}
 	if c.Conductor.TranscriptSize == 0 {
 		c.Conductor.TranscriptSize = 20

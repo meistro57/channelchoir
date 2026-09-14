@@ -112,6 +112,31 @@ autocomplete. Type the bare name.
 
 ---
 
+## Commands
+
+A human message that starts with the command prefix (default `!choir`, set
+`conductor.command_prefix` to change it) is handled before any scoring or
+name-addressing, so it acts immediately and never turns into banter.
+
+| Command | What it does |
+|---|---|
+| `!choir help` | List every command. |
+| `!choir voices` | List the current cast. |
+| `!choir mute <name>` | Park a voice. Matches first name or full name. |
+| `!choir unmute <name>` | Bring a muted voice back. |
+| `!choir summon <name>` | Make that voice speak next, skipping cooldown. |
+| `!choir stop` | Force the room into rest until a human speaks. |
+| `!choir topic [text]` | Set (or with no text, read) a session topic injected into prompts. |
+| `!choir status` | Report verse position, muted voices, and current topic. |
+
+Commands acknowledge in-channel through a dedicated **conductor webhook**
+(`conductor.conductor_webhook_url`, set `WEBHOOK_CONDUCTOR` in `.env`). If that
+webhook is empty, commands still apply and are logged, but nothing is echoed
+back. `mute` is session-only — it does not survive a restart. To keep a voice
+out permanently, set `muted: true` in its persona YAML instead.
+
+---
+
 ## Memory
 
 The choir writes every message in the channel to its own Qdrant collection, and

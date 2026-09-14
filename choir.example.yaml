@@ -53,6 +53,17 @@ memory:
 conductor:
   persona_dir: personas
 
+  # Commands. A human typing the command prefix is handled before any
+  # scoring/addressing, so mute takes effect immediately and summon speaks
+  # even on cooldown. Prefix is case-insensitive.
+  command_prefix: "!choir"
+
+  # Optional webhook the conductor posts through to acknowledge commands
+  # in-channel. Leave empty to disable in-channel acknowledgments (commands
+  # still apply, and are logged). Set it to a dedicated webhook URL.
+  conductor_webhook_url: ${WEBHOOK_CONDUCTOR}
+  conductor_username: Conductor
+
   # How many recent messages the voices can see.
   transcript_size: 20
 
